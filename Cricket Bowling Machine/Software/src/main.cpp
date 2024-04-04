@@ -124,10 +124,10 @@ void BT_print(void)
 }
 
 //*****Buzzer******//
-void beep(void) // function of buzzer for beep sound
+void beep(uint16_t time) // function of buzzer for beep sound
 {
     digitalWrite(Buzzer, HIGH);
-    vTaskDelay(100 / portTICK_PERIOD_MS);
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
     digitalWrite(Buzzer, LOW);
 }
 
@@ -244,37 +244,10 @@ void mode()
     }
 }
 
-// BY PARVEEN
-
-//------------------------------------------------------------------------------------//
-
 void setup()
 {
     Serial.begin(115200);
     SerialBT.begin(device_name);
-
-    // WiFi.mode(WIFI_STA);
-    // WiFi.begin(ssid, password);
-    // Serial.println("");
-
-    // // Wait for connection
-    // while (WiFi.status() != WL_CONNECTED)
-    // {
-    //     delay(500);
-    //     Serial.print(".");
-    // }
-    // Serial.println("");
-    // Serial.print("Connected to ");
-    // Serial.println(ssid);
-    // Serial.print("IP address: ");
-    // Serial.println(WiFi.localIP());
-
-    // server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-    //           { request->send(200, "text/plain", "Hi! This is a sample response."); });
-
-    // AsyncElegantOTA.begin(&server); // Start AsyncElegantOTA
-    // server.begin();
-    // Serial.println("HTTP server started");
 
     //*****Push Buttons*****//
     pinMode(speed_Inc, INPUT);
