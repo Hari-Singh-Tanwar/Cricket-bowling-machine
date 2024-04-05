@@ -17,16 +17,16 @@ BluetoothSerial SerialBT;
 char btdata = '0'; // VARIABLE FOR BLUETOOTH DATA INPUT VALUE
 
 //***************GPIO Layout for push button*************//
-const uint8_t swSpeedInc = 33;
-const uint8_t swSpeedDec = 25;
+const uint8_t swSpeedInc = 4;
+const uint8_t swSpeedDec = 15;
 const uint8_t swR_swing = 14;
 const uint8_t swL_swing = 26;
 const uint8_t swFwd = 27;
 const uint8_t swMode = 12;
 const uint8_t swMotor_3 = 2;
 const uint8_t swRst = 13;
-const uint8_t swSwingInc = 4;
-const uint8_t swSwingDec = 15;
+const uint8_t swSwingInc = 33;
+const uint8_t swSwingDec = 25;
 
 const uint8_t buzzer = 16; // esp32 connected with buzzer
 
@@ -43,9 +43,8 @@ uint8_t speed_M2 = 0;
 uint8_t speed_M3 = 0;
 bool dir_1 = false;
 bool dir_2 = false;
-String mode = "NULL";
+String mode = "fwd";
 uint8_t fwdSpeed = 0;
-// uint8_t fwdSpeed_M2;
 uint8_t L_swingSpeed_M1 = 0;
 uint8_t L_swingSpeed_M2 = 0;
 uint8_t R_swingSpeed_M1 = 0;
@@ -56,27 +55,11 @@ uint8_t dutycycle_M1 = 0;
 uint8_t dutycycle_M2 = 0;
 uint8_t dutycycle_M3 = 0;
 
-//.............current and last state of buttons..........//
-bool R_swingState = NULL;
-bool lastR_swingState = HIGH;
-
-bool L_swingState = HIGH;
-bool lastL_swingState = HIGH;
-
-bool fwdState = HIGH;
-bool lastFwdState = HIGH;
-
-bool modeState = HIGH;
-bool lastModeState = HIGH;
-
-bool rstState = HIGH;
-bool lastRstState = HIGH;
-
 //...........current state of speed and swing push button.........//
-int speedIncState = HIGH;
-int speedDecState = HIGH;
-int swingIncState = HIGH;
-int swingDecState = HIGH;
+bool speedIncState = HIGH;
+bool speedDecState = HIGH;
+bool swingIncState = HIGH;
+bool swingDecState = HIGH;
 
 // add debounce to preSet button
 unsigned long lastDebounceTime = 0;
@@ -143,27 +126,27 @@ void setDutycycle(String setMode)
 {
   if (setMode == "fwd")
   {
+    Serial.println("H12");
     dutycycle_M1 = fwdSpeed;
     dutycycle_M2 = fwdSpeed;
   }
 
   else if (setMode == "L_swing")
   {
+    Serial.println("H13");
     dutycycle_M1 = L_swingSpeed_M1;
     dutycycle_M2 = L_swingSpeed_M2;
   }
-  else if (setMode == "L_swing")
+  else if (setMode == "R_swing")
   {
+    Serial.println("H14");
     dutycycle_M1 = R_swingSpeed_M1;
     dutycycle_M2 = R_swingSpeed_M2;
   }
 
+  Serial.println("H15");
   digitalWrite(motor_1, dutycycle_M1);
   digitalWrite(motor_2, dutycycle_M2);
-  Serial.println("Sepped of motor 1 :");
-  Serial.println(motor_1);
-  Serial.println("Sepped of motor 2 :");
-  Serial.println(motor_2);
 }
 
 //**********PRINTING ON BLUETOOH TERMINAL***************//
@@ -178,17 +161,21 @@ void BT_print()
 //..........save Forward mode............//
 void saveFwd()
 {
-  EEPROM.put(eepromFwd, dutycycle_M1);
-  // EEPROM.put(eepromSpeed_M2, dutycycle_M2);
+  fwdSpeed = dutycycle_M1;
+  EEPROM.put(eepromFwd, fwdSpeed);
   EEPROM.commit(); // Store the values in EEPROM
+  Serial.println("saved");
   delay(10);
 }
 
 //..........save L_swing mode............//
 void saveL_swing()
 {
-  EEPROM.put(eepromL_swing_M1, dutycycle_M1);
-  EEPROM.put(eepromL_swing_M2, dutycycle_M2);
+  L_swingSpeed_M1 = dutycycle_M1;
+  L_swingSpeed_M2 = dutycycle_M2;
+  EEPROM.put(eepromL_swing_M1, L_swingSpeed_M1);
+  EEPROM.put(eepromL_swing_M2, L_swingSpeed_M2);
+  Serial.println("saved");
   EEPROM.commit(); // Store the values in EEPROM
   delay(10);
 }
@@ -196,8 +183,11 @@ void saveL_swing()
 //..........save Forward mode............//
 void saveR_swing()
 {
-  EEPROM.put(eepromR_swing_M1, dutycycle_M1);
-  EEPROM.put(eepromR_swing_M2, dutycycle_M2);
+  R_swingSpeed_M1 = dutycycle_M1;
+  R_swingSpeed_M2 = dutycycle_M2;
+  EEPROM.put(eepromR_swing_M1, R_swingSpeed_M1);
+  EEPROM.put(eepromR_swing_M2, R_swingSpeed_M2);
+  Serial.println("saved");
   EEPROM.commit(); // Store the values in EEPROM
   delay(10);
 }
@@ -233,6 +223,38 @@ void incSwing()
   setDutycycle("NULL");
 }
 
+//..........upeate Serial monitor.................//
+void updateSerial(bool serialUpdate)
+{
+  Serial.print("m1 :");
+  Serial.println(dutycycle_M1);
+  Serial.print("m2 :");
+  Serial.println(dutycycle_M2);
+  Serial.print("mode :");
+  Serial.println(mode);
+  Serial.print("ball feeder :");
+  Serial.println(speed_M3);
+  serialUpdate = false;
+}
+
+
+//..........setup function for ball feeder.............//
+void setupBall_F(bool setBall_F){
+  while (setBall_F)
+  {
+    if(digitalRead(swSpeedInc)){
+      speed_M3 += 15;
+      updateSerial(true);
+    }
+    if(digitalRead(swSpeedDec)){
+      speed_M3 -= 15;
+      updateSerial(true);
+    }
+    if(swMotor_3)
+      break;
+  }
+  
+}
 void setup()
 {
   Serial.begin(115200);
@@ -242,7 +264,6 @@ void setup()
   //............Start and get value for eeprom..............//
   EEPROM.begin(512);
   EEPROM.get(eepromFwd, fwdSpeed);
-  // EEPROM.get(eepromFwd_M2, fwdSpeed_M2);
   EEPROM.get(eepromL_swing_M1, L_swingSpeed_M1);
   EEPROM.get(eepromL_swing_M2, L_swingSpeed_M2);
   EEPROM.get(eepromR_swing_M1, R_swingSpeed_M1);
@@ -274,26 +295,18 @@ void setup()
   lcd.print("WELCOME");
   lcd.setCursor(2, 1);
   lcd.print("Who are you ?");
-  delay(1000);
+  // delay(1000);
   Serial.println("START");
-  delay(600);
 
-  // set dutycycle
-  dutycycle_M1 = 90;
-  dutycycle_M2 = 90;
-  digitalWrite(motor_1,dutycycle_M1);
-  digitalWrite(motor_2,dutycycle_M2);
+  // // set dutycycle
+  // dutycycle_M1 = 90;
+  // dutycycle_M2 = 90;
+  // digitalWrite(motor_1, dutycycle_M1);
+  // digitalWrite(motor_2, dutycycle_M2);
 }
 
 void loop()
 {
-  //******* CHECK BLUETOOTH IS CONNECTED OR NOT *******
-
-  if (SerialBT.connected())
-    Serial.println("Bluetooth device is connected");
-  else
-    Serial.println("Bluetooth device is disconnected");
-
   if (SerialBT.available())
   {
     btdata = SerialBT.read();
@@ -307,20 +320,44 @@ void loop()
   speedIncState = digitalRead(swSpeedInc);
   swingDecState = digitalRead(swSwingDec);
   swingIncState = digitalRead(swSwingInc);
-  L_swingState = digitalRead(swL_swing);
-  R_swingState = digitalRead(swR_swing);
-  fwdState = digitalRead(swFwd);
-  rstState = digitalRead(swRst);
-  mode = digitalRead(swMode);
+
+  //...........Ball feeder .............//
+  if (digitalRead(swMotor_3) == HIGH || btdata == 'g')
+  {
+    lastDebounceTime = millis();
+    buzz(200);
+    while (digitalRead(swMotor_3))
+    {
+      if (millis() - lastDebounceTime >= 3000)
+      {
+        buzz(1000);
+        setupBall_F(true);
+        break;
+      }
+    }
+
+    if (dutycycle_M3 == 0)
+    {
+      dutycycle_M3 = speed_M3;
+      digitalWrite(motor_3, dutycycle_M3);
+    }
+    else
+    {
+      dutycycle_M3 = 0;
+      digitalWrite(motor_3, 0);
+    }
+  }
 
   if (speedIncState == HIGH || btdata == 'i') // Increases the duty cycle of both the motors by 5%
   {
     if ((dutycycle_M1 <= 240) && (dutycycle_M2 <= 240))
     {
       buzz(200);
+      Serial.println("H11");
       dutycycle_M1 += 15; // Increases the speed of Motor 1
       dutycycle_M2 += 15; // Increases the speed of Motor 2
       setDutycycle("NULL");
+      updateSerial(true);
       delay(200);
     }
   }
@@ -330,99 +367,93 @@ void loop()
     if ((dutycycle_M1 >= 15) && (dutycycle_M2 >= 15))
     {
       buzz(200);
+      Serial.println("H10");
       dutycycle_M1 -= 15; // Increases the speed of Motor 1
       dutycycle_M2 -= 15; // Increases the speed of Motor 2
       setDutycycle("NULL");
+      updateSerial(true);
       delay(200);
     }
   }
 
   //..........when pressing button forward (fwd) ........//
 
-  if (fwdState != lastFwdState || btdata == 'a')
+  if (digitalRead(swFwd) == HIGH || btdata == 'a')
   {
-    lastFwdState = fwdState;
+    lastDebounceTime = millis();
+    buzz(200);
+    while (digitalRead(swFwd))
+    {
+      if (millis() - lastDebounceTime >= 3000)
+      {
+        buzz(1000);
+        saveFwd();
+        break;
+      }
+    }
 
-    if (fwdState == HIGH || btdata == 'a')
-    {
-      buzz(200);
-      mode = "fwd";
-      setDutycycle(mode);
-      lastDebounceTime = millis();
-    }
-  }
-  if (fwdState == HIGH && millis() - lastFwdState >= 3000)
-  {
-    buzz(1000);
-    while (digitalRead(fwdState) == HIGH)
-    {
-      delay(10);
-    }
-    saveFwd();
+    Serial.println("H9");
+    mode = "fwd";
+    setDutycycle(mode);
+    updateSerial(true);
   }
 
   //..........when pressing button L_swing ........//
-  if (L_swingState != lastL_swingState || btdata == 'a')
-  {
-    lastL_swingState = L_swingState;
 
-    if (L_swingState == HIGH || btdata == 'a')
-    {
-      buzz(200);
-      mode = "L_swing";
-      setDutycycle(mode);
-      lastDebounceTime = millis();
-    }
-  }
-  if (L_swingState == HIGH && millis() - lastL_swingState >= 3000)
+  if (digitalRead(swL_swing) == HIGH || btdata == 'b')
   {
-    buzz(1000);
-    while (digitalRead(L_swingState) == HIGH)
+    lastDebounceTime = millis();
+    buzz(200);
+    while (digitalRead(swL_swing))
     {
-      delay(10);
+      if (millis() - lastDebounceTime >= 3000)
+      {
+        buzz(1000);
+        saveL_swing();
+        break;
+      }
     }
-    saveL_swing();
+
+    Serial.println("H8");
+    mode = "L_swing";
+    setDutycycle(mode);
+    updateSerial(true);
   }
 
   //..........when pressing button R_swing ........//
-  if (R_swingState != lastR_swingState || btdata == 'a')
-  {
-    lastR_swingState = R_swingState;
 
-    if (R_swingState == HIGH || btdata == 'a')
-    {
-      buzz(200);
-      mode = "R_swing";
-      setDutycycle(mode);
-      lastDebounceTime = millis();
-    }
-  }
-  if (R_swingState == HIGH && millis() - lastR_swingState >= 3000)
+  if (digitalRead(swR_swing) == HIGH || btdata == 'c')
   {
-    buzz(1000);
-    while (digitalRead(L_swingState) == HIGH)
+    lastDebounceTime = millis();
+    buzz(200);
+    while (digitalRead(swR_swing))
     {
-      delay(10);
+      if (millis() - lastDebounceTime >= 3000)
+      {
+        buzz(1000);
+        saveR_swing();
+        break;
+      }
     }
-    saveR_swing();
+
+    Serial.println("H7");
+    mode = "R_swing";
+    setDutycycle(mode);
+    updateSerial(true);
   }
 
   //...........increasing & decreasing swing Level.......//
   if ((swingDecState == HIGH || btdata == 't') && mode != "fwd")
   {
+    Serial.println("H1");
     decSwing();
+    updateSerial(true);
   }
 
   if ((swingIncState == HIGH || btdata == 'p') && mode != "fwd")
   {
+    Serial.println("H2");
     incSwing();
+    updateSerial(true);
   }
-
-  // Serial.println("we are in loop");
-  Serial.print("m1 :");
-  Serial.println(dutycycle_M1);
-  Serial.print("m2 :");
-  Serial.println(dutycycle_M2);
-  Serial.print("mode :");
-  Serial.println(mode);
 }

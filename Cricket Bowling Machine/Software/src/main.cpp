@@ -124,7 +124,7 @@ void BT_print(void)
 }
 
 //*****Buzzer******//
-void beep(uint16_t time) // function of buzzer for beep sound
+void beep() // function of buzzer for beep sound
 {
     digitalWrite(Buzzer, HIGH);
     vTaskDelay(2000 / portTICK_PERIOD_MS);
