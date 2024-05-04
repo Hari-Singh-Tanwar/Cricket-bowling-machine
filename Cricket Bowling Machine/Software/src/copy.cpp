@@ -298,11 +298,11 @@ void setup()
   // delay(1000);
   Serial.println("START");
 
-  // // set dutycycle
-  // dutycycle_M1 = 90;
-  // dutycycle_M2 = 90;
-  // digitalWrite(motor_1, dutycycle_M1);
-  // digitalWrite(motor_2, dutycycle_M2);
+  // set dutycycle
+  dutycycle_M1 = 0;
+  dutycycle_M2 = 0;
+  digitalWrite(motor_1, dutycycle_M1);
+  digitalWrite(motor_2, dutycycle_M2);
 }
 
 void loop()

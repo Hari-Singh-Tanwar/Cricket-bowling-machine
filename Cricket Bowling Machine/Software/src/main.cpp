@@ -1,29 +1,16 @@
-// #include <WiFi.h>
-// #include <AsyncTCP.h>
-
-// #include <ESPAsyncWebServer.h>
-// #include <AsyncElegantOTA.h>
-
-// const char *ssid = "ECB_TEQIP";
-// const char *password = "";
-
-// AsyncWebServer server(80);
-
 #include <Arduino.h>
-#include <Wire.h>
+#include "BluetoothSerial.h"
+#include <LiquidCrystal_I2C.h>
+// #include <EEPROM.h>
+
+//debounce*//
+#define debounce 50
 
 //******* LCD setup **********//
-#include <LiquidCrystal_I2C.h> // Address 0x3F
 LiquidCrystal_I2C lcd(0x3F, 16, 2);
-uint8_t text = 0;
-uint8_t text2 = 0; // for setup mode display
-uint8_t text3 = 0; // for preset_reset mode display
 
-#include "BluetoothSerial.h"
 //****** BLUETOOTH CODE **********
-
-String device_name = "ESP32 Sports AMI"; // ESP32_MOTOR_CONTROLLER
-
+String device_name = "ESP32 Paakhandi";
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run make menuconfig to and enable it
 #endif
@@ -32,521 +19,775 @@ BluetoothSerial SerialBT;
 
 char btdata = '0'; // VARIABLE FOR BLUETOOTH DATA INPUT VALUE
 
-//************************************************//
+//GPIO Layout for push button//
+const uint8_t swSpeedInc = 4;
+const uint8_t swSpeedDec = 15;
+const uint8_t swR_swing = 14;
+const uint8_t swL_swing = 26;
+const uint8_t swFwd = 27;
+const uint8_t swMotor_3 = 2;
+const uint8_t RST = 12;
+const uint8_t Mode = 13;
+const uint8_t swSwingInc = 33;
+const uint8_t swSwingDec = 25;
 
-// defines //
-#define speed_change 5 // change of duty cycle at each button press
-#define debounce 50    // debounce time in ms
-#define RPM 5          // RPM of ball feeder
+//GPIO Layout for Speed Sensor//
+const uint8_t RpmSensor1 = 34;
+const uint8_t RpmSensor2 = 35;
 
-//***************GPIO Layout*************//
-const uint8_t speed_Inc = 33;
-const uint8_t speed_Dec = 25;
-const uint8_t R_swing = 14;
-const uint8_t L_swing = 26;
-const uint8_t Fwd = 27;
-const uint8_t Mode = 12;
-const uint8_t Ball_feeder = 2;
-const uint8_t RST = 13;
-const uint8_t Swing_Inc = 4;
-const uint8_t Swing_Dec = 15;
+const uint8_t speed = 36;
 
-//********INPUT Var*******//
-bool speed_Inc_state = LOW;
-bool speed_Dec_state = LOW;
-bool Swing_Inc_state = LOW;
-bool Swing_Dec_state = LOW;
-bool R_swing_state = LOW;
-bool L_swing_state = LOW;
-bool Fwd_state = LOW;
-bool Mode_state = LOW;
-bool Ball_feeder_state = LOW;
-bool RST_state = LOW;
+const uint8_t buzzer = 16; // esp32 connected with buzzer
+uint8_t RPM = 2;
+// uint8_t Kv = 20;
+bool BallF_flag = false;
+//..............ESP32 pin connected with motor and L298 motor driver...........//
+const uint8_t motor_1 = 32; // Motor 1 is assumed to be the right motor
+const uint8_t motor_2 = 19; // Motor 2 is assumed to be the left  motor
+const uint8_t motor_3 = 18;
+const uint8_t in_1 = 5;
+const uint8_t in_2 = 17;
 
-const uint8_t Motor1 = 32;
-const uint8_t Motor2 = 19;
-const uint8_t Motor3 = 18;
-const uint8_t In1 = 5;
-const uint8_t In2 = 17;
+//.............variables saved in EEPROM....//
+bool In_1_state = LOW;
+bool In_2_state = HIGH;
+String mode = "fwd";
+uint8_t fwdSpeed = 0;
+uint8_t L_swingSpeed_M1 = 0;
+uint8_t L_swingSpeed_M2 = 0;
+uint8_t R_swingSpeed_M1 = 0;
+uint8_t R_swingSpeed_M2 = 0;
 
-const uint8_t Speed1 = 34;
-const uint8_t Speed2 = 35;
-const uint8_t Hall1 = 36;
-const uint8_t Hall2 = 39;
+//........Counting the number of times the Swing inc or dec was pressed.........//
+uint8_t countSwing = 1;
+bool fwdM = false;
+bool L_SM = false;
+bool R_SM = false;
 
-const uint8_t Buzzer = 16;
+//...........current state of motor.........//
+uint8_t dutycycle_M1 = 0;
+uint8_t dutycycle_M2 = 0;
+uint8_t dutycycle_M3 = 0;
 
-// PWM properties //
-const uint16_t freq = 1000; // Frequency of PWM signal
-const uint8_t res = 8;      // Resolution of PWM signsl (8 -> 8bit = 0 - 255)
-const uint8_t ch0 = 0;      // Channel 0 of PWM signal
-const uint8_t ch1 = 1;      // Channel 1 of PWM signal
-const uint8_t ch2 = 2;      // Channel 2 of PWM signal
+//...........current state of speed and swing push button.........//
+bool speedIncState = LOW;
+bool speedDecState = LOW;
+bool swingIncState = LOW;
+bool swingDecState = LOW;
 
-float speed_M1 = 0;
-float speed_M2 = 0;
-float dutyCycleM1 = 50;
-float dutyCycleM2 = 50;
-uint8_t dutyprint;
+// add debounce to preSet button
+unsigned long lastDebounceTime = 0;
+unsigned long debounceDelay = 50;
 
-uint8_t mode_swing = 1;
-uint8_t swing = 0;
-float M1 = 1;
-float M2 = 1;
-String mode_dispaly = "Stright";
+//.......MODE VARs.......//
+bool modeflag = false;
+bool dir_clkW = true;
+String display_direction = "ClockWise";
 
-bool direction = 1; // 1 = forward , 0 = backward for the Ball feeder
-uint8_t ballFeeder_duration = 10;
-// uint8_t ballfeeder_speed = 1;
-unsigned long rotation_time = (60000 / RPM);
+int count1 = 0;
 
-bool mode_flag = 0;
+float avg = 0; // average of the both duty cycle
+//.........EEPROM Address.........//
+uint8_t eepromSpeed_M1 = 0;
+uint8_t eepromSpeed_M2 = 4;
+uint8_t eepromSpeed_M3 = 8;
+uint8_t eepromDir_1 = 12;
+uint8_t eepromDir_2 = 16;
 
-//*****Task Handler******//
-// TaskHandle_t ballSpeedHandler = NULL;
-// void ballSpeed(void *parameters); // For Ball Speed
+// Task variables
+uint32_t countM1 = 0;
+uint32_t countM2 = 0;
+float RpmM1 = 0;
+float RpmM2 = 0;
+unsigned long delaymills = 0; // To provide a non blocking nature of code
+bool checkRpm = false;
 
-//**********PRINTING ON BLUETOOH TERMINAL***************//
-bool btflag = 0;
-void BT_print(void)
+// Speed sensor
+unsigned long speedtime = 0;
+unsigned long balltime = 0;
+bool speedFlag = true;
+float ballSpeed = 0.0;
+// Task Handler of the IR sensors
+// TaskHandle_t rpmHandler;
+// TaskHandle_t speedHandler;
+
+//.............................function for buzzer..................//
+void buzz(int time)
 {
-    // **** BLUETOOTH SCREEN PRINT ******
-    while (btflag)
-    {
-        SerialBT.print("Speed1 = "); // Display Dutycycle of Motor 1 on Bluetooth Terminal
-        SerialBT.println(speed_M1);
-        SerialBT.print("Speed2 = "); // Display Dutycycle of Motor 1 on Bluetooth Terminal
-        SerialBT.println(speed_M2);
-
-        btdata = '0'; // CHANGE BTDATA VALUE TO "00"
-        btflag = 0;
-    }
+  digitalWrite(buzzer, HIGH);
+  delay(time);
+  digitalWrite(buzzer, LOW);
 }
 
-//*****Buzzer******//
-void beep() // function of buzzer for beep sound
+//.............................Set PWM..............................//
+void setSpeed()
 {
-    digitalWrite(Buzzer, HIGH);
-    vTaskDelay(2000 / portTICK_PERIOD_MS);
-    digitalWrite(Buzzer, LOW);
+  ledcWrite(0, dutycycle_M1);
+  ledcWrite(1, dutycycle_M2);
+  ledcWrite(2, dutycycle_M3);
+
+  // digitalWrite(in_1, LOW);
+  // digitalWrite(in_2, LOW); // Put lcd code to indicate to wait
+  // delay(10000);            // wait for the motor to gain the speed
+  // buzz(100);
+  // digitalWrite(in_1, In_1_state);
+  // digitalWrite(in_2, In_2_state);
 }
 
-void restart_beep(void)
+//.........write the dutycycle of motor M1 and M2..........//
+void setDutycycle(String setMode)
 {
-    digitalWrite(Buzzer, HIGH);
-    vTaskDelay(2000 / portTICK_PERIOD_MS);
-    digitalWrite(Buzzer, LOW);
+
+  if (setMode == "fwd" && fwdM == true)
+  {
+    avg = (dutycycle_M1 + dutycycle_M2) / 2;
+    dutycycle_M1 = avg;
+    dutycycle_M2 = avg;
+    countSwing = 1;
+    fwdM = false;
+  }
+
+  else if (setMode == "L_swing" && L_SM == true)
+  {
+    avg = (dutycycle_M1 + dutycycle_M2) / 2;
+    //   // Serial.println("H13");
+    dutycycle_M1 = avg;
+    dutycycle_M2 = avg;
+
+    dutycycle_M1 -= (15 * countSwing);
+    dutycycle_M2 += (15 * countSwing);
+    L_SM = false;
+  }
+
+  else if (setMode == "R_swing" && R_SM == true)
+  {
+    avg = (dutycycle_M1 + dutycycle_M2) / 2;
+    dutycycle_M1 = avg;
+    dutycycle_M2 = avg;
+
+    dutycycle_M1 += (15 * countSwing);
+    dutycycle_M2 -= (15 * countSwing);
+    R_SM = false;
+  }
+
+  // Serial.println("H15");
+  digitalWrite(motor_1, dutycycle_M1);
+  digitalWrite(motor_2, dutycycle_M2);
 }
 
-bool state = LOW;
-unsigned long previousMillis = 0;
-unsigned long previousMillis1 = 0;
-bool feeder_state = LOW;
-
-void feeder()
+void decSwing()
 {
-    if (direction == 1)
+  if (countSwing > 0)
+  {
+    if (mode == "L_swing")
     {
-        digitalWrite(In1, HIGH);
-        digitalWrite(In2, LOW);
+      dutycycle_M1 += 15;
+      dutycycle_M2 -= 15;
     }
-    if (direction == 0)
+    else if (mode == "R_swing")
     {
-        digitalWrite(In1, LOW);
-        digitalWrite(In2, HIGH);
-    }
-    // digitalWrite(Motor3, HIGH);
-    // vTaskDelay(rotation_time / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-    // digitalWrite(Motor3, LOW);
-    unsigned long currentMillis = millis();
 
-    if (currentMillis - previousMillis >= rotation_time)
-    {
-        previousMillis = currentMillis;
-        state != state;
-        digitalWrite(Motor3, state);
+      dutycycle_M1 -= 15;
+      dutycycle_M2 += 15;
     }
+    setDutycycle("NULL");
+  }
+}
+void incSwing()
+{
+  if (mode == "L_swing")
+  {
+
+    dutycycle_M1 -= 15;
+    dutycycle_M2 += 15;
+  }
+  else if (mode == "R_swing")
+  {
+    dutycycle_M1 += 15;
+    dutycycle_M2 -= 15;
+  }
+  setDutycycle("NULL");
 }
 
-String display_direction = "Stright";
-
-void mode()
+//..........upeate Serial monitor.................//
+void updateSerial(bool serialUpdate)
 {
-    uint8_t count = 0;
-    while (mode_flag)
+  Serial.print("m1 :");
+  Serial.println(dutycycle_M1);
+  Serial.print("m2 :");
+  Serial.println(dutycycle_M2);
+  Serial.print("mode :");
+  Serial.println(mode);
+  Serial.print("ball feeder :");
+  Serial.println(RPM);
+  Serial.print("Swing val = ");
+  Serial.println(countSwing);
+
+  // updating LCD
+  avg = (dutycycle_M1 + dutycycle_M2) / 2;
+
+  // Printing on Bluetooth teminal
+  SerialBT.print("Speed1 = "); // Display Dutycycle of Motor 1 on Bluetooth Terminal
+  SerialBT.println(dutycycle_M1);
+  SerialBT.print("Speed2 = "); // Display Dutycycle of Motor 1 on Bluetooth Terminal
+  SerialBT.println(dutycycle_M2);
+  SerialBT.print("RPM = ");
+  SerialBT.println(RPM);
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print((int)avg);
+  lcd.setCursor(5, 0);
+  lcd.print("K/h");
+  lcd.setCursor(10, 0);
+  lcd.print("BF");
+  lcd.setCursor(13, 0);
+  lcd.print(RPM);
+  lcd.setCursor(0, 1);
+  lcd.print("MODE ");
+  lcd.setCursor(6, 1);
+  lcd.print(mode);
+  if (mode != "fwd")
+  {
+    lcd.setCursor(14, 1);
+    lcd.print(countSwing);
+  }
+  serialUpdate = false;
+}
+
+// MODE//
+// Setting -lcd
+
+void settingLcd(uint8_t count)
+{
+  switch (count)
+  {
+  case 2:
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Ball Feeder Dir");
+    lcd.setCursor(0, 1);
+    lcd.print(display_direction);
+    break;
+
+  case 1:
+    lcd.clear();
+    lcd.setCursor(1, 0);
+    lcd.print("Ball Per Minute");
+    lcd.setCursor(1, 1);
+    lcd.print(RPM);
+    lcd.setCursor(6, 1);
+    lcd.print("Ball/min");
+    break;
+  }
+}
+
+// //..........MODE.............//
+void MODE()
+{
+  lcd.clear();
+  lcd.setCursor(4, 0);
+  lcd.print("SETTINGS");
+  delay(750);
+
+  Serial.println("INside the mode");
+  Serial.print("modeflag = ");
+  Serial.println(modeflag);
+  uint8_t count = 0;
+  while (modeflag)
+  {
+    delay(100);
+    // Serial.println("Inside while");
+    if (digitalRead(swSwingDec) == HIGH && count < 2)
     {
+      delay(50);
+      buzz(200);
+      count += 1;
+      settingLcd(count);
+      Serial.print("count =");
+      Serial.println(count);
+    }
+    if (digitalRead(swSwingInc) == HIGH && count > 1)
+    {
+      delay(50);
+      buzz(200);
+      count -= 1;
+      settingLcd(count);
+      Serial.print("count =");
+      Serial.println(count);
+    }
+
+    switch (count)
+    {
+    case 2:
+      if (digitalRead(swSpeedInc) == HIGH || digitalRead(swSpeedDec) == HIGH)
+      {
+        delay(50);
+        buzz(200);
+        dir_clkW = !(dir_clkW);
+
+        if (dir_clkW == 0)
+        {
+          display_direction = "Anti-ClockWise";
+          In_1_state = HIGH;
+          In_2_state = LOW;
+          digitalWrite(in_1, In_1_state);
+          digitalWrite(in_2, In_2_state);
+        }
+        else if (dir_clkW == 1)
+        {
+          display_direction = "ClockWise";
+          In_1_state = LOW;
+          In_2_state = HIGH;
+          digitalWrite(in_1, In_1_state);
+          digitalWrite(in_2, In_2_state);
+        }
+
         lcd.clear();
-        lcd.setCursor(6, 0);
-        lcd.print("MODE");
-        delay(500);
-        if (digitalRead(Swing_Dec) == HIGH && count < 2)
-        {
-            count += 1;
-        }
-        if (digitalRead(Swing_Inc) == HIGH && count > 0)
-        {
-            count -= 1;
-        }
+        lcd.setCursor(0, 0);
+        lcd.print("Ball Feeder Dir");
+        lcd.setCursor(0, 1);
+        lcd.print(display_direction);
 
-        switch (count)
-        {
-        case 0:
+        Serial.println(display_direction);
+      }
+      break;
 
-            if (digitalRead(speed_Inc) == HIGH || digitalRead(speed_Dec) == HIGH)
-            {
-                direction = !(direction);
-            }
+    case 1:
 
-            if (direction == 0)
-            {
-                display_direction = "REV";
-            }
-            else if (direction == 1)
-            {
-                display_direction = "FWD";
-            }
+      if (digitalRead(swSpeedInc) == HIGH && (RPM < 10))
+      {
+        delay(50);
+        buzz(200);
+        RPM += 1;
+        lcd.clear();
+        lcd.setCursor(1, 0);
+        lcd.print("Ball Per Minute");
+        lcd.setCursor(1, 1);
+        lcd.print(RPM);
+        lcd.setCursor(6, 1);
+        lcd.print("Ball/min");
+      }
+      if (digitalRead(swSpeedDec) == HIGH && (RPM > 1))
+      {
+        delay(50);
+        buzz(200);
+        RPM -= 1;
+        lcd.clear();
+        lcd.setCursor(1, 0);
+        lcd.print("Ball Per Minute");
+        lcd.setCursor(1, 1);
+        lcd.print(RPM);
+        lcd.setCursor(6, 1);
+        lcd.print("Ball/min");
+      }
 
-            lcd.clear();
-            lcd.setCursor(2, 0);
-            lcd.print("Ball Feeder");
-            lcd.setCursor(0, 1);
-            lcd.print("Direction");
-            lcd.setCursor(12, 1);
-            lcd.print(display_direction);
-            break;
-
-        case 1:
-
-            if (digitalRead(speed_Inc) == HIGH)
-            {
-                ballFeeder_duration += 5;
-            }
-            if (digitalRead(speed_Dec) == HIGH && (ballFeeder_duration > 5))
-            {
-                ballFeeder_duration -= 5;
-            }
-            lcd.clear();
-            lcd.setCursor(2, 0);
-            lcd.print("Ball Feeder");
-            lcd.setCursor(1, 1);
-            lcd.print("Time");
-            lcd.setCursor(9, 1);
-            lcd.print(ballFeeder_duration);
-            lcd.setCursor(12, 1);
-            lcd.print("Sec");
-
-            break;
-        }
-        if (digitalRead(Mode) == HIGH)
-        {
-            mode_flag = 0;
-        }
+      break;
     }
+
+    if (digitalRead(Mode) == HIGH)
+    {
+      delay(50);
+      buzz(200);
+      // dutycycle_M3 = RPM;
+      switch (RPM)
+      {
+      case 1:
+        dutycycle_M3 = 41;
+        break;
+
+      case 2:
+        dutycycle_M3 = 50;
+        break;
+      case 3:
+        dutycycle_M3 = 55;
+        break;
+      case 4:
+        dutycycle_M3 = 60;
+        break;
+
+      case 5:
+        dutycycle_M3 = 65;
+        break;
+
+      case 6:
+        dutycycle_M3 = 70;
+        break;
+      case 7:
+        dutycycle_M3 = 75;
+        break;
+      case 8:
+        dutycycle_M3 = 80;
+        break;
+      case 9:
+        dutycycle_M3 = 85;
+        break;
+      case 10:
+        dutycycle_M3 = 90;
+        break;
+      // case 11:
+      //   dutycycle_M3 = 100;
+      //   break;
+      // case 12:
+      //   dutycycle_M3 = 105;
+      //   break;
+      // case 13:
+      //   dutycycle_M3 = 110;
+      //   break;
+      // case 14:
+      //   dutycycle_M3 = 115;
+      //   break;
+      // case 15:
+      //   dutycycle_M3 = 120;
+      //   break;
+      // case 16:
+      //   dutycycle_M3 = 125;
+      //   break;
+      // case 17:
+      //   dutycycle_M3 = 130;
+      //   break;
+      // case 18:
+      //   dutycycle_M3 = 135;
+      //   break;
+      // case 19:
+      //   dutycycle_M3 = 140;
+      //   break;
+      // case 20:
+      //   dutycycle_M3 = 145;
+      //   break;
+      }
+
+      ledcWrite(2, dutycycle_M3);
+      modeflag = false;
+      Serial.println("Exiting mode");
+    }
+  }
 }
+
+void TaskRpm() // void *pvParameters)
+{
+  while (checkRpm)
+  {
+    if (digitalRead(RpmSensor1) == HIGH) // && (millis() - delaymills >= 3000))
+    {
+      countM1 += 1;
+      Serial.println(countM1);
+    }
+
+    if (digitalRead(RpmSensor2) == HIGH) // && (millis() - delaymills >= 3000))
+    {
+      countM2 += 1;
+      Serial.println(countM2);
+    }
+
+    if (millis() - delaymills > 3001)
+    {
+      RpmM1 = ((float)countM1 / 3.0) * 60;
+      RpmM2 = ((float)countM2 / 3.0) * 60;
+      countM1 = 0;
+      countM2 = 0;
+      checkRpm = false;
+      break;
+    }
+  }
+
+  Serial.print("Rpm of M1 = ");
+  Serial.println(RpmM1);
+  Serial.print("Rpm of M2 = ");
+  Serial.println(RpmM2);
+
+SerialBT.print("Rpm of M1 = ");
+  SerialBT.println(RpmM1);
+  SerialBT.print("Rpm of M2 = ");
+  SerialBT.println(RpmM2);
+  
+  // checkRpm = false;
+}
+
+// void TaskSpeed(void * pvParameters)
+// {
+//  if(digitalRead(speed) == HIGH && speedFlag){
+//   speedtime = millis();
+//   speedFlag = false;
+//  }
+//  if(digitalRead(speed) == LOW){
+//   balltime = millis() - speedtime;
+//   speedFlag = true;
+//  }
+// ballSpeed = 19.444444 / balltime;
+// Serial.print("Speed of ball = ");
+// Serial.println(ballSpeed);
+// }
 
 void setup()
 {
-    Serial.begin(115200);
-    SerialBT.begin(device_name);
+  Serial.begin(115200);
+  Serial.println("I am READY!");
+  SerialBT.begin(device_name);
 
-    //*****Push Buttons*****//
-    pinMode(speed_Inc, INPUT);
-    pinMode(speed_Dec, INPUT);
-    pinMode(R_swing, INPUT);
-    pinMode(L_swing, INPUT);
-    pinMode(Mode, INPUT);
-    pinMode(Fwd, INPUT);
-    pinMode(RST, INPUT);
-    pinMode(Swing_Inc, INPUT);
-    pinMode(Swing_Dec, INPUT);
-    pinMode(Ball_feeder, INPUT);
+  pinMode(motor_1, OUTPUT);
+  pinMode(motor_2, OUTPUT);
+  pinMode(motor_3, OUTPUT);
+  pinMode(in_1, OUTPUT);
+  pinMode(in_2, OUTPUT);
+  pinMode(buzzer, OUTPUT);
 
-    //*****Speed Sensor*****//
-    pinMode(Speed1, INPUT);
-    pinMode(Speed2, INPUT);
-    pinMode(Hall1, INPUT);
-    pinMode(Hall2, INPUT);
+  pinMode(swSwingDec, INPUT);
+  pinMode(swSwingInc, INPUT);
+  pinMode(swL_swing, INPUT);
+  pinMode(swR_swing, INPUT);
+  pinMode(swSpeedDec, INPUT);
+  pinMode(swSpeedInc, INPUT);
+  pinMode(swMotor_3, INPUT);
+  pinMode(swFwd, INPUT);
+  pinMode(RST, INPUT);
+  pinMode(Mode, INPUT);
+  pinMode(RpmSensor1, INPUT);
+  pinMode(RpmSensor2, INPUT);
 
-    //*****Output******//
-    pinMode(In1, OUTPUT);
-    pinMode(In2, OUTPUT);
+  // Setting up lcd //
+  lcd.init();      // Initialize LCD
+  lcd.backlight(); // Turn on LCD backlight
+  lcd.clear();
+  lcd.setCursor(4, 0);
+  lcd.print("WELCOME");
+  lcd.setCursor(2, 1);
+  lcd.print("Sports AMY");
+  // delay(1000);
+  Serial.println("START");
 
-    pinMode(Buzzer, OUTPUT);
+  // Tasks for speed measurement
+  // xTaskCreate(
+  //     TaskRpm,     /* Task function. */
+  //     "Task1",     /* name of task. */
+  //     100,       /* Stack size of task */
+  //     NULL,        /* parameter of the task */
+  //     1,           /* priority of the task */
+  //     NULL); /* Task handle to keep track of created task */
 
-    ledcSetup(ch0, freq, res);
-    ledcAttachPin(Motor1, ch0);
-    ledcSetup(ch1, freq, res);
-    ledcAttachPin(Motor2, ch1);
-    // ledcSetup(ch2, freq, res);
-    // ledcAttachPin(Motor3, ch2);
+  // xTaskCreate(
+  //     TaskSpeed,     /* Task function. */
+  //     "Task2",       /* name of task. */
+  //     100,         /* Stack size of task */
+  //     NULL,          /* parameter of the task */
+  //     1,             /* priority of the task */
+  //     NULL); /* Task handle to keep track of created task */
 
-    // Setting up lcd //
-    lcd.init();      // Initialize LCD
-    lcd.backlight(); // Turn on LCD backlight
-    lcd.clear();
-    lcd.setCursor(4, 0);
-    lcd.print("WELCOME");
-    lcd.setCursor(2, 1);
-    lcd.print("Sports AMY");
+  // set dutycycle
+  ledcSetup(0, 500, 8);
+  ledcAttachPin(motor_1, 0);
+  ledcSetup(1, 500, 8);
+  ledcAttachPin(motor_2, 1);
+  ledcSetup(2, 500, 8);
+  ledcAttachPin(motor_3, 2);
 
-    // for (int i = 0; i < 8; i = i + 5)
-    // {
-    //     float speed_;
-    //     speed_ = i * (2.55) * M1; // Changes Dutycycle into speed of motor i.e between 0 - 255
-    //     ledcWrite(ch0, (uint8_t)speed_);
-    //     ledcWrite(ch1, (uint8_t)speed_);
-    //     delay(500);
-    // }
-    Serial.println("START");
-    // Task to establish connection with the wifi
-    // xTaskCreatePinnedToCore(
-    //     ballSpeed,              // function name which you want to run
-    //     "Gets the  ball speed", // function description
-    //     2000,                   // stack size
-    //     NULL,                   // parameters of function
-    //     1,                      // task priority
-    //     &ballSpeedHandler,      // task handler
-    //     0                       // it will run in core 0
-    // );
+  delay(1000);
+
+  lcd.clear();
+  lcd.setCursor(2, 0);
+  lcd.print("Please wait");
+
+  // updateSerial(true);
+  for (uint8_t i = 0; i <= 90; i++)
+  {
+    dutycycle_M1 = i;
+    dutycycle_M2 = i;
+    setSpeed();
+
+    Serial.print("m1 :");
+    Serial.println(dutycycle_M1);
+    Serial.print("m2 :");
+    Serial.println(dutycycle_M2);
+    Serial.print("mode :");
+    Serial.println(mode);
+    delay(100);
+  }
+  updateSerial(true);
 }
 
 void loop()
 {
-    //******* CHECK BLUETOOTH IS CONNECTED OR NOT *******
+  // Serial.println("LOOP");
+  if (SerialBT.available())
+  {
+    btdata = SerialBT.read();
+    Serial.print(" Bluetooth input: ");
+    Serial.println(btdata);
+  }
+  //
 
-    if (SerialBT.connected())
+  //.............button for increase and decrease speed and swing.....//
+  speedDecState = digitalRead(swSpeedDec);
+  speedIncState = digitalRead(swSpeedInc);
+  swingDecState = digitalRead(swSwingDec);
+  swingIncState = digitalRead(swSwingInc);
+
+  //...........Ball feeder .............//
+  if (digitalRead(Mode) == HIGH)
+  {
+    delay(50);
+    buzz(200);
+    Serial.println("MODE");
+    modeflag = true;
+    MODE();
+    updateSerial(true);
+  }
+
+  if (digitalRead(swMotor_3) == HIGH)
+  {
+    delay(50);
+    buzz(200);
+    if (BallF_flag == false)
     {
-        Serial.println("Bluetooth device is connected");
+      digitalWrite(in_1, In_1_state);
+      digitalWrite(in_2, In_2_state);
+      dutycycle_M3 = 50; // getDutycycle(RPM);
+      ledcWrite(2, dutycycle_M3);
+      BallF_flag = true;
+      Serial.println("HIGH");
     }
+
     else
     {
-        Serial.println("Bluetooth device is disconnected");
+      BallF_flag = false;
+      dutycycle_M3 = 0;
+      setSpeed();
+      Serial.println("LOW");
     }
+  }
 
-    //******* BLUETOOTH INPUT VALUE IN "btdata" VARIABLE ******
-
-    if (SerialBT.available())
+  if (speedIncState == HIGH || btdata == 'i') // Increases the duty cycle of both the motors by 5%
+  {
+    if ((dutycycle_M1 <= 240) && (dutycycle_M2 <= 240))
     {
-        btdata = SerialBT.read();
-        Serial.print(" Bluetooth input  ");
-        Serial.println(btdata);
+      delay(debounce);
+      buzz(200);
+      Serial.println("H11");
+      dutycycle_M1 += 15; // Increases the speed of Motor 1
+      dutycycle_M2 += 15; // Increases the speed of Motor 2
+      setDutycycle("NULL");
+      updateSerial(true);
+      delay(200);
     }
+    setSpeed();
+    delaymills = millis();
+    // checkRpm = true;
+    // TaskRpm();
+  }
 
-    speed_Inc_state = digitalRead(speed_Inc);
-    speed_Dec_state = digitalRead(speed_Dec);
-    Swing_Inc_state = digitalRead(Swing_Inc);
-    Swing_Dec_state = digitalRead(Swing_Dec);
-    Fwd_state = digitalRead(Fwd);
-    R_swing_state = digitalRead(R_swing);
-    L_swing_state = digitalRead(L_swing);
-    Mode_state = digitalRead(Mode);
-    Ball_feeder_state = digitalRead(Ball_feeder);
-    speed_Inc_state = digitalRead(speed_Inc);
-
-    if (speed_Inc_state == HIGH || btdata == 'i') // Increases the duty cycle of both the motors by 5%
+  if (speedDecState == HIGH || btdata == 'k') // Decreases the duty cycle of both the motors by 5%
+  {
+    if ((dutycycle_M1 >= 15) && (dutycycle_M2 >= 15))
     {
-        if ((dutyCycleM1 < 100) && (dutyCycleM2 < 100))
-        {
-            vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-            dutyCycleM1 += speed_change;               // Increases the speed of Motor 1
-            dutyCycleM2 += speed_change;               // Increases the speed of Motor 2
-            beep();                                    // Beep to indicate the exicution
-            btflag = 1;
-        }
+      delay(debounce);
+      buzz(200);
+      Serial.println("H10");
+      dutycycle_M1 -= 15; // Increases the speed of Motor 1
+      dutycycle_M2 -= 15; // Increases the speed of Motor 2
+      setDutycycle("NULL");
+      updateSerial(true);
+      delay(200);
     }
+    setSpeed();
+    delaymills = millis();
+    // checkRpm = true;
+    // TaskRpm();
+  }
 
-    if (speed_Dec_state == HIGH || btdata == 'k') // Decreases the duty cycle of both the motors by 5%
+  //..........when pressing button forward (fwd) ........//
+
+  if (digitalRead(swFwd) == HIGH || btdata == 'a')
+  {
+    delay(debounce);
+    buzz(200);
+    // Serial.println("H9");
+    mode = "fwd";
+    fwdM = true;
+    setDutycycle(mode);
+    updateSerial(true);
+    setSpeed();
+  }
+
+  //..........when pressing button L_swing ........//
+
+  if (digitalRead(swL_swing) == HIGH || btdata == 'b')
+  {
+    delay(debounce);
+    buzz(200);
+    // Serial.println("H8");
+    mode = "L_swing";
+    L_SM = true;
+    setDutycycle(mode);
+    updateSerial(true);
+    setSpeed();
+  }
+
+  //..........when pressing button R_swing ........//
+
+  if (digitalRead(swR_swing) == HIGH || btdata == 'c')
+  {
+    delay(debounce);
+    buzz(200);
+    // Serial.println("H7");
+    mode = "R_swing";
+    R_SM = true;
+    setDutycycle(mode);
+    updateSerial(true);
+    setSpeed();
+  }
+
+  //...........increasing & decreasing swing Level.......//
+  if ((digitalRead(swSwingDec) == HIGH || btdata == 't') && mode != "fwd")
+  {
+    if (((dutycycle_M1 >= 15) && (dutycycle_M2 >= 15)) && (countSwing > 1))
     {
-        if ((dutyCycleM1 != 0) && (dutyCycleM2 != 0))
-        {
-            vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-            dutyCycleM1 -= speed_change;               // Decreases the speed of Motor 1
-            dutyCycleM2 -= speed_change;               // Decreases the speed of Motor 2
-            beep();                                    // Beep to indicate the exicution
-            btflag = 1;
-        }
+      delay(debounce);
+      countSwing -= 1;
+      buzz(200);
+      Serial.println("H1");
+      decSwing();
+      setSpeed();
+      updateSerial(true);
     }
+  }
 
-    if (Fwd_state == HIGH || btdata == 'a')
+  if ((digitalRead(swSwingInc) == HIGH || btdata == 'p') && mode != "fwd")
+  {
+    if ((dutycycle_M1 <= 240) && (dutycycle_M2 <= 240) && (countSwing < 20))
     {
-        vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-        beep();
-        btflag = 1;
-        mode_swing = 1;
-        swing = 0;
-        mode_dispaly = "Stright";
+      delay(debounce);
+      countSwing += 1;
+      buzz(200);
+      Serial.println("H2");
+      incSwing();
+      setSpeed();
+      updateSerial(true);
     }
+  }
 
-    if (L_swing_state == HIGH || btdata == 'b')
+  if (digitalRead(RST) == HIGH || btdata == 'r')
+  {
+    Serial.println("RST");
+    delay(debounce);
+    buzz(200);
+    dutycycle_M1 = 0;
+    dutycycle_M2 = 0;
+    digitalWrite(in_1, LOW);
+    digitalWrite(in_2, LOW);
+    setSpeed();
+    updateSerial(true);
+    lastDebounceTime = millis();
+    while (digitalRead(RST))
     {
-        vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-        beep();
-        btflag = 1;
-        mode_swing = 2;
-        swing = 1;
-        mode_dispaly = "Leg Spin";
-    }
-
-    if (R_swing_state == HIGH || btdata == 'c')
-    {
-        vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-        beep();
-        btflag = 1;
-        mode_swing = 3;
-        swing = 1;
-        mode_dispaly = "Off spin";
-    }
-
-    if ((Swing_Inc_state == HIGH || btdata == 'd') && (swing < 5))
-    {
-        vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-        beep();
-        btflag = 1;
-        swing += 1;
-    }
-
-    if ((Swing_Dec_state == HIGH || btdata == 'e') && (swing > 1))
-    {
-        vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-        beep();
-        btflag = 1;
-        swing -= 1;
-    }
-
-    if (Ball_feeder_state == HIGH || btdata == 'f')
-    {
-        vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-        beep();
-        btflag = 1;
-        feeder_state = !feeder_state;
-    }
-
-    if (Mode_state == HIGH || btdata == 'g')
-    {
-        vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-        beep();
-        btflag = 1;
-        mode_flag = 1;
-        mode();
-    }
-
-    if (RST_state == HIGH || btdata == 'r')
-    {
-        vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-        beep();
-        btflag = 1;
+      if (millis() - lastDebounceTime >= 3000)
+      {
+        lcd.clear();
+        lcd.setCursor(3, 0);
+        lcd.print("RESETTING");
+        SerialBT.println("Resetting");
+        buzz(1000);
         ESP.restart();
+      }
     }
-
-    if (btdata == 'j') // Stops both the motors
-    {
-        vTaskDelay(debounce / portTICK_PERIOD_MS); // debouncing switch for 50 ms
-        beep();
-        btflag = 1;
-        dutyCycleM1 = 0; // Motor 1 Stop
-        dutyCycleM2 = 0; // Motor 2 Stop
-    }
-
-    switch (mode_swing)
-    {
-    case 1:
-        M1 = 1.0;
-        M2 = 1.0;
-        break;
-    case 2:
-        switch (swing)
-        {
-        case 1:
-            M1 = (1.0 / 1.5);
-            M2 = 1.0;
-            break;
-        case 2:
-            M1 = (1.0 / 3.0);
-            M2 = 1.0;
-            break;
-        case 3:
-            M1 = (1.0 / 5.0);
-            M2 = 1.0;
-            break;
-        case 4:
-            M1 = (1.0 / 7.0);
-            M2 = 1.0;
-            break;
-        case 5:
-            M1 = (1.0 / 9.0);
-            M2 = 1.0;
-            break;
-        }
-    case 3:
-        switch (swing)
-        {
-        case 1:
-            M1 = 1.0;
-            M2 = (1.0 / 1.5);
-            break;
-        case 2:
-            M1 = 1.0;
-            M2 = (1.0 / 3.0);
-            break;
-        case 3:
-            M1 = 1;
-            M2 = (1.0 / 5.0);
-            break;
-        case 4:
-            M1 = 1.0;
-            M2 = (1.0 / 7.0);
-            break;
-        case 5:
-            M1 = 1.0;
-            M2 = (1.0 / 9.0);
-            break;
-        }
-    default:
-        break;
-    }
-
-    // Motor 1
-    speed_M1 = dutyCycleM1 * (2.55) * M1; // Changes Dutycycle into speed of motor i.e between 0 - 255
-    ledcWrite(ch0, (uint8_t)speed_M1);    // Generates PWM output for Motor 1
-    Serial.print("DutyCycle of Motor1 = ");
-    Serial.print(dutyCycleM1);
-    Serial.print(" Speed = ");
-    Serial.println((uint8_t)speed_M1);
-    // Motor 2
-    speed_M2 = dutyCycleM2 * (2.55) * M2; // Changes Dutycycle into speed of motor i.e between 0 - 255
-    ledcWrite(ch1, (uint8_t)speed_M2);    // Generates PWM output for Motor 2
-    Serial.print("DutyCycle of Motor 2 = ");
-    Serial.print(dutyCycleM2);
-    Serial.print(" Speed = ");
-    Serial.println((uint8_t)speed_M2);
-
-    dutyprint = (speed_M1 + speed_M2) / 2;
-    // Ball Feeder
-    if (feeder_state)
-    {
-        unsigned long currentMillis = millis();
-
-        if (currentMillis - previousMillis1 >= (ballFeeder_duration * 1000))
-        {
-            // save the last time you blinked the LED
-            previousMillis1 = currentMillis;
-
-            feeder();
-        }
-    }
-
-    //**************LCD****************//
-    lcd.clear();
-    lcd.setCursor(1, 0);
-    lcd.print("SPEED");
-    lcd.setCursor(9, 0);
-    lcd.print(dutyprint);
-    lcd.setCursor(0, 1);
-    lcd.print(mode_dispaly);
-    lcd.setCursor(8, 1);
-    lcd.print(swing);
-
-    //***********Printing on BT device***********//
-    BT_print();
-    delay(150);
+  }
 }
