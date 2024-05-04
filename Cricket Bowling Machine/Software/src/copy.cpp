@@ -93,7 +93,7 @@ void setSpeed()
   analogWrite(motor_2, dutycycle_M2);
 }
 
-//.............................Display data to LCD.................//
+//........................Display data to LCD................//
 void displayData()
 {
   lcd.clear();
