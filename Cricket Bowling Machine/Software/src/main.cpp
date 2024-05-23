@@ -10,7 +10,7 @@
 LiquidCrystal_I2C lcd(0x3F, 16, 2);
 
 //****** BLUETOOTH CODE **********
-String device_name = "ESP32.......!";
+String device_name = "ESP32 Paakhandi";
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run make menuconfig to and enable it
 #endif
